@@ -1,0 +1,1242 @@
+## 💻 Arduino Source Code
+
+The following Arduino code implements the Smart Medicine Reminder system using an Arduino Uno, DS3231 RTC, 16×2 LCD, push buttons, LEDs, and a buzzer.
+
+### Complete Arduino Code
+
+```cpp
+#include <Wire.h>
+#include <LiquidCrystal.h>
+#include <RTClib.h>
+
+// =====================================================
+// LCD
+// =====================================================
+
+const int LCD_RS = 12;
+const int LCD_EN = 11;
+const int LCD_D4 = 6;
+const int LCD_D5 = 5;
+const int LCD_D6 = 4;
+const int LCD_D7 = 3;
+
+LiquidCrystal lcd(
+  LCD_RS,
+  LCD_EN,
+  LCD_D4,
+  LCD_D5,
+  LCD_D6,
+  LCD_D7
+);
+
+// =====================================================
+// RTC
+// =====================================================
+
+RTC_DS3231 rtc;
+
+// =====================================================
+// BUTTONS
+// =====================================================
+
+const int BUTTON_HOUR     = A0;
+const int BUTTON_MINUTE   = 7;
+const int BUTTON_REMINDER = 8;
+const int BUTTON_OK       = 9;
+
+// =====================================================
+// OUTPUTS
+// =====================================================
+
+const int RED_LED   = 10;
+const int GREEN_LED = 2;
+const int BUZZER    = 13;
+
+// =====================================================
+// ALARM TIMES
+// =====================================================
+
+int alarm1Hour   = 0;
+int alarm1Minute = 0;
+int alarm1Second = 0;
+
+int alarm2Hour   = 0;
+int alarm2Minute = 0;
+int alarm2Second = 0;
+
+int alarm3Hour   = 0;
+int alarm3Minute = 0;
+int alarm3Second = 0;
+
+// =====================================================
+// REMINDER TYPE
+// =====================================================
+
+int reminderType = 1;
+
+// 1 = Once / Day
+// 2 = Twice / Day
+// 3 = Thrice / Day
+
+// =====================================================
+// ALARM STATUS
+// =====================================================
+
+bool alarm1Active = false;
+bool alarm2Active = false;
+bool alarm3Active = false;
+
+bool alarm1Triggered = false;
+bool alarm2Triggered = false;
+bool alarm3Triggered = false;
+
+// =====================================================
+// SYSTEM MODES
+// =====================================================
+
+enum SystemMode {
+  NORMAL_MODE,
+
+  SET_ALARM1_HOUR,
+  SET_ALARM1_MINUTE,
+
+  SET_REMINDER_TYPE,
+
+  SET_ALARM2_HOUR,
+  SET_ALARM2_MINUTE,
+
+  SET_ALARM3_HOUR,
+  SET_ALARM3_MINUTE,
+
+  WAITING_MODE,
+
+  ALARM_MODE
+};
+
+SystemMode mode = NORMAL_MODE;
+
+// =====================================================
+// CURRENT ALARM
+// =====================================================
+
+int currentAlarmNumber = 0;
+
+// =====================================================
+// ALARM BLINK
+// =====================================================
+
+bool alarmOutputState = false;
+
+unsigned long lastAlarmToggle = 0;
+
+const unsigned long ALARM_INTERVAL = 500;
+
+// =====================================================
+// BUZZER TONES
+// =====================================================
+
+const int ALARM_TONE = 1500;
+const int CONFIRMATION_TONE = 2000;
+
+// =====================================================
+// DATE TRACKING
+// =====================================================
+
+int lastDay = -1;
+
+// =====================================================
+// SETUP
+// =====================================================
+
+void setup() {
+
+  Serial.begin(9600);
+
+  // LCD
+  lcd.begin(16, 2);
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Welcome to Smart");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Medicine Reminder");
+
+  delay(2000);
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Stay Healthy :)");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Get Well Soon :)");
+
+  delay(2000);
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Press Buttons");
+
+  lcd.setCursor(0, 1);
+  lcd.print("To Set Reminders");
+
+  delay(2000);
+
+  lcd.clear();
+
+  // RTC
+  if (!rtc.begin()) {
+
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("RTC ERROR!");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Check DS3231");
+
+    while (true) {
+      delay(100);
+    }
+  }
+
+  // Set RTC according to computer compilation time
+  rtc.adjust(
+    DateTime(F(__DATE__), F(__TIME__))
+  );
+
+  // Buttons
+  pinMode(BUTTON_HOUR, INPUT_PULLUP);
+  pinMode(BUTTON_MINUTE, INPUT_PULLUP);
+  pinMode(BUTTON_REMINDER, INPUT_PULLUP);
+  pinMode(BUTTON_OK, INPUT_PULLUP);
+
+  // LEDs
+  pinMode(RED_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+
+  digitalWrite(RED_LED, LOW);
+  digitalWrite(GREEN_LED, LOW);
+
+  // Buzzer
+  pinMode(BUZZER, OUTPUT);
+
+  noTone(BUZZER);
+  digitalWrite(BUZZER, LOW);
+
+  // RTC Day
+  DateTime now = rtc.now();
+
+  lastDay = now.day();
+
+  mode = NORMAL_MODE;
+
+  lcd.clear();
+
+  showCurrentTime();
+
+  Serial.println("SMART MEDICINE REMINDER");
+  Serial.println("System Ready");
+}
+
+// =====================================================
+// MAIN LOOP
+// =====================================================
+
+void loop() {
+
+  sendSerialPlotterData();
+
+  if (mode == NORMAL_MODE) {
+    handleNormalMode();
+    return;
+  }
+
+  if (mode == SET_ALARM1_HOUR) {
+    handleAlarm1Hour();
+    return;
+  }
+
+  if (mode == SET_ALARM1_MINUTE) {
+    handleAlarm1Minute();
+    return;
+  }
+
+  if (mode == SET_REMINDER_TYPE) {
+    handleReminderType();
+    return;
+  }
+
+  if (mode == SET_ALARM2_HOUR) {
+    handleAlarm2Hour();
+    return;
+  }
+
+  if (mode == SET_ALARM2_MINUTE) {
+    handleAlarm2Minute();
+    return;
+  }
+
+  if (mode == SET_ALARM3_HOUR) {
+    handleAlarm3Hour();
+    return;
+  }
+
+  if (mode == SET_ALARM3_MINUTE) {
+    handleAlarm3Minute();
+    return;
+  }
+
+  if (mode == WAITING_MODE) {
+    handleWaitingMode();
+    return;
+  }
+
+  if (mode == ALARM_MODE) {
+    handleAlarm();
+    return;
+  }
+}
+
+// =====================================================
+// NORMAL MODE
+// =====================================================
+
+void handleNormalMode() {
+
+  static unsigned long lastDisplay = 0;
+
+  if (millis() - lastDisplay >= 500) {
+
+    lastDisplay = millis();
+
+    showCurrentTime();
+  }
+
+  if (buttonPressed(BUTTON_HOUR)) {
+
+    mode = SET_ALARM1_HOUR;
+
+    lcd.clear();
+
+    showAlarm1Hour();
+
+    return;
+  }
+}
+
+// =====================================================
+// SET ALARM 1 HOUR
+// =====================================================
+
+void handleAlarm1Hour() {
+
+  if (buttonPressed(BUTTON_HOUR)) {
+
+    alarm1Hour++;
+
+    if (alarm1Hour > 23) {
+      alarm1Hour = 0;
+    }
+
+    showAlarm1Hour();
+  }
+
+  if (buttonPressed(BUTTON_OK)) {
+
+    mode = SET_ALARM1_MINUTE;
+
+    lcd.clear();
+
+    showAlarm1Minute();
+  }
+}
+
+// =====================================================
+// SET ALARM 1 MINUTE
+// =====================================================
+
+void handleAlarm1Minute() {
+
+  if (buttonPressed(BUTTON_MINUTE)) {
+
+    alarm1Minute++;
+
+    if (alarm1Minute > 59) {
+      alarm1Minute = 0;
+    }
+
+    showAlarm1Minute();
+  }
+
+  if (buttonPressed(BUTTON_OK)) {
+
+    mode = SET_REMINDER_TYPE;
+
+    lcd.clear();
+
+    showReminderType();
+  }
+}
+
+// =====================================================
+// REMINDER TYPE
+// =====================================================
+
+void handleReminderType() {
+
+  if (buttonPressed(BUTTON_REMINDER)) {
+
+    reminderType++;
+
+    if (reminderType > 3) {
+      reminderType = 1;
+    }
+
+    showReminderType();
+  }
+
+  if (buttonPressed(BUTTON_OK)) {
+
+    if (reminderType == 1) {
+
+      activateAlarms();
+
+      mode = WAITING_MODE;
+
+      lcd.clear();
+
+      showWaitingScreen();
+    }
+
+    else {
+
+      mode = SET_ALARM2_HOUR;
+
+      lcd.clear();
+
+      showAlarm2Hour();
+    }
+  }
+}
+
+// =====================================================
+// SET ALARM 2 HOUR
+// =====================================================
+
+void handleAlarm2Hour() {
+
+  if (buttonPressed(BUTTON_HOUR)) {
+
+    alarm2Hour++;
+
+    if (alarm2Hour > 23) {
+      alarm2Hour = 0;
+    }
+
+    showAlarm2Hour();
+  }
+
+  if (buttonPressed(BUTTON_OK)) {
+
+    mode = SET_ALARM2_MINUTE;
+
+    lcd.clear();
+
+    showAlarm2Minute();
+  }
+}
+
+// =====================================================
+// SET ALARM 2 MINUTE
+// =====================================================
+
+void handleAlarm2Minute() {
+
+  if (buttonPressed(BUTTON_MINUTE)) {
+
+    alarm2Minute++;
+
+    if (alarm2Minute > 59) {
+      alarm2Minute = 0;
+    }
+
+    showAlarm2Minute();
+  }
+
+  if (buttonPressed(BUTTON_OK)) {
+
+    if (reminderType == 2) {
+
+      activateAlarms();
+
+      mode = WAITING_MODE;
+
+      lcd.clear();
+
+      showWaitingScreen();
+    }
+
+    else {
+
+      mode = SET_ALARM3_HOUR;
+
+      lcd.clear();
+
+      showAlarm3Hour();
+    }
+  }
+}
+
+// =====================================================
+// SET ALARM 3 HOUR
+// =====================================================
+
+void handleAlarm3Hour() {
+
+  if (buttonPressed(BUTTON_HOUR)) {
+
+    alarm3Hour++;
+
+    if (alarm3Hour > 23) {
+      alarm3Hour = 0;
+    }
+
+    showAlarm3Hour();
+  }
+
+  if (buttonPressed(BUTTON_OK)) {
+
+    mode = SET_ALARM3_MINUTE;
+
+    lcd.clear();
+
+    showAlarm3Minute();
+  }
+}
+
+// =====================================================
+// SET ALARM 3 MINUTE
+// =====================================================
+
+void handleAlarm3Minute() {
+
+  if (buttonPressed(BUTTON_MINUTE)) {
+
+    alarm3Minute++;
+
+    if (alarm3Minute > 59) {
+      alarm3Minute = 0;
+    }
+
+    showAlarm3Minute();
+  }
+
+  if (buttonPressed(BUTTON_OK)) {
+
+    activateAlarms();
+
+    mode = WAITING_MODE;
+
+    lcd.clear();
+
+    showWaitingScreen();
+  }
+}
+
+// =====================================================
+// ACTIVATE ALARMS
+// =====================================================
+
+void activateAlarms() {
+
+  alarm1Active = true;
+  alarm1Triggered = false;
+
+  if (reminderType >= 2) {
+
+    alarm2Active = true;
+    alarm2Triggered = false;
+  }
+
+  else {
+
+    alarm2Active = false;
+    alarm2Triggered = false;
+  }
+
+  if (reminderType >= 3) {
+
+    alarm3Active = true;
+    alarm3Triggered = false;
+  }
+
+  else {
+
+    alarm3Active = false;
+    alarm3Triggered = false;
+  }
+
+  DateTime now = rtc.now();
+
+  lastDay = now.day();
+
+  Serial.println("================================");
+  Serial.println("REMINDERS SET");
+  Serial.print("Type: ");
+  Serial.println(reminderType);
+}
+
+// =====================================================
+// WAITING MODE
+// =====================================================
+
+void handleWaitingMode() {
+
+  DateTime now = rtc.now();
+
+  if (now.day() != lastDay) {
+
+    lastDay = now.day();
+
+    alarm1Triggered = false;
+    alarm2Triggered = false;
+    alarm3Triggered = false;
+  }
+
+  if (
+    alarm1Active &&
+    !alarm1Triggered &&
+    now.hour() == alarm1Hour &&
+    now.minute() == alarm1Minute &&
+    now.second() == alarm1Second
+  ) {
+
+    alarm1Triggered = true;
+
+    currentAlarmNumber = 1;
+
+    startAlarm();
+
+    return;
+  }
+
+  if (
+    alarm2Active &&
+    !alarm2Triggered &&
+    now.hour() == alarm2Hour &&
+    now.minute() == alarm2Minute &&
+    now.second() == alarm2Second
+  ) {
+
+    alarm2Triggered = true;
+
+    currentAlarmNumber = 2;
+
+    startAlarm();
+
+    return;
+  }
+
+  if (
+    alarm3Active &&
+    !alarm3Triggered &&
+    now.hour() == alarm3Hour &&
+    now.minute() == alarm3Minute &&
+    now.second() == alarm3Second
+  ) {
+
+    alarm3Triggered = true;
+
+    currentAlarmNumber = 3;
+
+    startAlarm();
+
+    return;
+  }
+
+  static unsigned long lastDisplay = 0;
+
+  if (millis() - lastDisplay >= 500) {
+
+    lastDisplay = millis();
+
+    showWaitingScreen();
+  }
+
+  if (buttonPressed(BUTTON_OK)) {
+
+    cancelAllReminders();
+
+    return;
+  }
+}
+
+// =====================================================
+// START ALARM
+// =====================================================
+
+void startAlarm() {
+
+  mode = ALARM_MODE;
+
+  alarmOutputState = true;
+
+  lastAlarmToggle = millis();
+
+  digitalWrite(RED_LED, HIGH);
+  digitalWrite(GREEN_LED, LOW);
+
+  tone(BUZZER, ALARM_TONE);
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("MEDICINE TIME!");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Alarm ");
+
+  lcd.print(currentAlarmNumber);
+
+  delay(1000);
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("TAKE MEDICINE");
+
+  lcd.setCursor(0, 1);
+  lcd.print("WITH WARM WATER");
+}
+
+// =====================================================
+// HANDLE ALARM
+// =====================================================
+
+void handleAlarm() {
+
+  unsigned long currentMillis = millis();
+
+  if (
+    currentMillis - lastAlarmToggle >=
+    ALARM_INTERVAL
+  ) {
+
+    lastAlarmToggle = currentMillis;
+
+    alarmOutputState = !alarmOutputState;
+
+    if (alarmOutputState) {
+
+      digitalWrite(RED_LED, HIGH);
+
+      tone(BUZZER, ALARM_TONE);
+    }
+
+    else {
+
+      digitalWrite(RED_LED, LOW);
+
+      noTone(BUZZER);
+    }
+  }
+
+  static unsigned long lastAlarmDisplay = 0;
+
+  if (millis() - lastAlarmDisplay >= 1000) {
+
+    lastAlarmDisplay = millis();
+
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("TAKE MEDICINE");
+
+    lcd.setCursor(0, 1);
+    lcd.print("WITH WARM WATER");
+  }
+
+  if (buttonPressed(BUTTON_OK)) {
+
+    stopAlarm();
+  }
+}
+
+// =====================================================
+// STOP ALARM
+// =====================================================
+
+void stopAlarm() {
+
+  noTone(BUZZER);
+
+  digitalWrite(BUZZER, LOW);
+
+  digitalWrite(RED_LED, LOW);
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("MEDICINE");
+
+  lcd.setCursor(0, 1);
+  lcd.print("CONFIRMED!");
+
+  tone(BUZZER, CONFIRMATION_TONE);
+
+  digitalWrite(RED_LED, HIGH);
+
+  delay(2000);
+
+  noTone(BUZZER);
+
+  digitalWrite(BUZZER, LOW);
+  digitalWrite(RED_LED, LOW);
+
+  digitalWrite(GREEN_LED, HIGH);
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("MEDICINE TAKEN");
+
+  delay(2000);
+
+  digitalWrite(GREEN_LED, LOW);
+
+  if (
+    alarm1Active &&
+    !alarm1Triggered
+  ) {
+
+    mode = WAITING_MODE;
+
+    lcd.clear();
+
+    showWaitingScreen();
+
+    return;
+  }
+
+  if (
+    alarm2Active &&
+    !alarm2Triggered
+  ) {
+
+    mode = WAITING_MODE;
+
+    lcd.clear();
+
+    showWaitingScreen();
+
+    return;
+  }
+
+  if (
+    alarm3Active &&
+    !alarm3Triggered
+  ) {
+
+    mode = WAITING_MODE;
+
+    lcd.clear();
+
+    showWaitingScreen();
+
+    return;
+  }
+
+  mode = NORMAL_MODE;
+
+  lcd.clear();
+
+  showCurrentTime();
+}
+
+// =====================================================
+// CANCEL ALL REMINDERS
+// =====================================================
+
+void cancelAllReminders() {
+
+  alarm1Active = false;
+  alarm2Active = false;
+  alarm3Active = false;
+
+  alarm1Triggered = false;
+  alarm2Triggered = false;
+  alarm3Triggered = false;
+
+  noTone(BUZZER);
+
+  digitalWrite(BUZZER, LOW);
+
+  digitalWrite(RED_LED, LOW);
+
+  digitalWrite(GREEN_LED, LOW);
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("REMINDERS");
+
+  lcd.setCursor(0, 1);
+  lcd.print("CANCELLED");
+
+  delay(1500);
+
+  mode = NORMAL_MODE;
+
+  lcd.clear();
+
+  showCurrentTime();
+}
+
+// =====================================================
+// CURRENT TIME + DATE
+// =====================================================
+
+void showCurrentTime() {
+
+  DateTime now = rtc.now();
+
+  lcd.setCursor(0, 0);
+
+  lcd.print("Time:");
+
+  printTwoDigits(now.hour());
+
+  lcd.print(":");
+
+  printTwoDigits(now.minute());
+
+  lcd.print(":");
+
+  printTwoDigits(now.second());
+
+  lcd.print(" ");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Date:");
+
+  printTwoDigits(now.day());
+
+  lcd.print("/");
+
+  printTwoDigits(now.month());
+
+  lcd.print("/");
+
+  lcd.print(now.year());
+}
+
+// =====================================================
+// ALARM DISPLAY FUNCTIONS
+// =====================================================
+
+void showAlarm1Hour() {
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("SET ALARM 1 ");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Hour:");
+
+  printTwoDigits(alarm1Hour);
+
+  lcd.print(" Ok=Next");
+}
+
+void showAlarm1Minute() {
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("SET ALARM 1 ");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Min:");
+
+  printTwoDigits(alarm1Minute);
+
+  lcd.print(" Ok=Next");
+}
+
+void showReminderType() {
+
+  lcd.clear();
+
+  if (reminderType == 1) {
+
+    lcd.setCursor(0, 0);
+    lcd.print("Set Reminder");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Once / Day");
+  }
+
+  else if (reminderType == 2) {
+
+    lcd.setCursor(0, 0);
+    lcd.print("Set Reminder");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Twice / Day");
+  }
+
+  else {
+
+    lcd.setCursor(0, 0);
+    lcd.print("Set Reminder");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Thrice / Day");
+  }
+}
+
+void showAlarm2Hour() {
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("SET ALARM 2 ");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Hour:");
+
+  printTwoDigits(alarm2Hour);
+
+  lcd.print(" Ok=Next");
+}
+
+void showAlarm2Minute() {
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("SET ALARM 2 ");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Min:");
+
+  printTwoDigits(alarm2Minute);
+
+  lcd.print(" OK=Next");
+}
+
+void showAlarm3Hour() {
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("SET ALARM 3 ");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Hour:");
+
+  printTwoDigits(alarm3Hour);
+
+  lcd.print(" Ok=Next");
+}
+
+void showAlarm3Minute() {
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("SET ALARM 3 ");
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Min:");
+
+  printTwoDigits(alarm3Minute);
+
+  lcd.print(" Ok=Save");
+}
+
+// =====================================================
+// WAITING SCREEN
+// =====================================================
+
+void showWaitingScreen() {
+
+  DateTime now = rtc.now();
+
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+
+  lcd.print("Now:");
+
+  printTwoDigits(now.hour());
+
+  lcd.print(":");
+
+  printTwoDigits(now.minute());
+
+  lcd.print(":");
+
+  printTwoDigits(now.second());
+
+  lcd.setCursor(0, 1);
+
+  lcd.print("Next:");
+
+  if (
+    alarm1Active &&
+    !alarm1Triggered
+  ) {
+
+    printTwoDigits(alarm1Hour);
+
+    lcd.print(":");
+
+    printTwoDigits(alarm1Minute);
+
+    lcd.print(":");
+
+    printTwoDigits(alarm1Second);
+  }
+
+  else if (
+    alarm2Active &&
+    !alarm2Triggered
+  ) {
+
+    printTwoDigits(alarm2Hour);
+
+    lcd.print(":");
+
+    printTwoDigits(alarm2Minute);
+
+    lcd.print(":");
+
+    printTwoDigits(alarm2Second);
+  }
+
+  else if (
+    alarm3Active &&
+    !alarm3Triggered
+  ) {
+
+    printTwoDigits(alarm3Hour);
+
+    lcd.print(":");
+
+    printTwoDigits(alarm3Minute);
+
+    lcd.print(":");
+
+    printTwoDigits(alarm3Second);
+  }
+
+  else {
+
+    lcd.print("--:--:--");
+  }
+}
+
+// =====================================================
+// SERIAL PLOTTER
+// =====================================================
+
+void sendSerialPlotterData() {
+
+  static unsigned long lastSerial = 0;
+
+  if (millis() - lastSerial >= 100) {
+
+    lastSerial = millis();
+
+    DateTime now = rtc.now();
+
+    long timeInSeconds =
+      now.hour() * 3600L +
+      now.minute() * 60L +
+      now.second();
+
+    Serial.print("RTC_Time:");
+    Serial.println(timeInSeconds);
+  }
+}
+
+// =====================================================
+// TWO DIGIT PRINT
+// =====================================================
+
+void printTwoDigits(int number) {
+
+  if (number < 10) {
+    lcd.print("0");
+  }
+
+  lcd.print(number);
+}
+
+// =====================================================
+// BUTTON FUNCTION
+// =====================================================
+
+bool buttonPressed(int pin) {
+
+  if (digitalRead(pin) == LOW) {
+
+    delay(50);
+
+    if (digitalRead(pin) == LOW) {
+
+      while (digitalRead(pin) == LOW) {
+        delay(10);
+      }
+
+      return true;
+    }
+  }
+
+  return false;
+}
+```
+
+## 📚 Required Libraries
+
+Install the following libraries in Arduino IDE:
+
+* `Wire.h`
+* `LiquidCrystal.h`
+* `RTClib.h`
+
+The project uses the **RTClib** library for communication with the DS3231 RTC module.
+
+## 🔌 Pin Configuration
+
+| Component       | Arduino Pin |
+| --------------- | ----------- |
+| LCD RS          | D12         |
+| LCD EN          | D11         |
+| LCD D4          | D6          |
+| LCD D5          | D5          |
+| LCD D6          | D4          |
+| LCD D7          | D3          |
+| Hour Button     | A0          |
+| Minute Button   | D7          |
+| Reminder Button | D8          |
+| OK Button       | D9          |
+| Red LED         | D10         |
+| Green LED       | D2          |
+| Buzzer          | D13         |
+| RTC             | I2C         |
+
+The pin assignments above are taken directly from the Arduino source code.
